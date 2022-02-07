@@ -28,7 +28,7 @@ type methodType struct {
 func (m *methodType) NumCalls() uint64 {
 	return atomic.LoadUint64(&m.numCalls)
 }
-
+//newArgv和newReplyv待研究
 func (m *methodType) newArgv() reflect.Value {
 	var argv reflect.Value
 	// arg may be a pointer type, or a value type
@@ -58,7 +58,7 @@ type service struct {
 	rcvr   reflect.Value          //结构体的实例本身
 	method map[string]*methodType //存储映射的结构体的所有符合条件的方法
 }
-
+//newService入参是任意需要映射为服务的结构体实例
 func newService(rcvr interface{}) *service {
 	s := new(service)
 	s.rcvr = reflect.ValueOf(rcvr)
@@ -220,7 +220,7 @@ func Accept(lis net.Listener) { DefaultServer.Accept(lis) }
 // for each incoming connection.
 func (server *Server) Accept(lis net.Listener) {
 	for {
-		conn, err := lis.Accept() //socket 连接建立
+		conn, err := lis.Accept() //socket 连接建立,accept为阻塞性函数，等待并返回下一个连接到该接口的连接
 		if err != nil {
 			log.Println("rpc server: accept error:", err)
 			return
@@ -260,6 +260,7 @@ func (server *Server) serveCodec(cc codec.Codec, opt Option) {
 
 	//同步，等待所有请求处理完
 	wg := new(sync.WaitGroup)
+	//只有readRequest发生错误才会退出循环，等待其它请求响应完毕后关闭连接
 	for {
 		req, err := server.readRequest(cc)
 		if err != nil {
@@ -308,7 +309,7 @@ func (server *Server) readRequest(cc codec.Codec) (*request, error) {
 	}
 	req.argv = req.mtype.newArgv()
 	req.replyv = req.mtype.newReplyv()
-
+	//确保argvi的值为指针类型，以达到ReadBody时能够同步改变req中的argv
 	argvi := req.argv.Interface()
 	if req.argv.Type().Kind() != reflect.Ptr {
 		argvi = req.argv.Addr().Interface()
@@ -330,8 +331,8 @@ func (server *Server) sendResponse(cc codec.Codec, h *codec.Header, body interfa
 
 func (server *Server) handleRequest(cc codec.Codec, req *request, sending *sync.Mutex, wg *sync.WaitGroup, timeout time.Duration) {
 	defer wg.Done()
-	called := make(chan struct{})
-	sent := make(chan struct{})
+	called := make(chan struct{}) //接收到消息，代表处理没有超时，继续执行 sendResponse
+	sent := make(chan struct{})   //成功返回响应
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func(ctx context.Context) {
@@ -346,11 +347,11 @@ func (server *Server) handleRequest(cc codec.Codec, req *request, sending *sync.
 		server.sendResponse(cc, req.h, req.replyv.Interface(), sending)
 		sent <- struct{}{}
 		select {
-		case <-ctx.Done():
+		case <-ctx.Done(): //防止goroutines泄露
 			return
 		}
 	}(ctx)
-
+	//timeout为0代表无限制
 	if timeout == 0 {
 		<-called
 		<-sent

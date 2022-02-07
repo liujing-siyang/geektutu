@@ -16,12 +16,12 @@ import (
 	"time"
 )
 
-// Call represents an active RPC.
+// 一次 RPC 调用所需要的信息
 type Call struct {
-	Seq           uint64
+	Seq           uint64      // 请求编号
 	ServiceMethod string      // format "<service>.<method>",服务名方法名
-	Args          interface{} // arguments to the function
-	Reply         interface{} // reply from the function
+	Args          interface{} // 服务提供的方法所需要的参数
+	Reply         interface{} // 服务提供的方法的返回值
 	Error         error       // if error occurs, it will be set
 	Done          chan *Call  // 调用完成通知调用方
 }
@@ -107,6 +107,7 @@ func (client *Client) terminateCalls(err error) {
 	}
 }
 
+//接收响应
 func (client *Client) receive() {
 	var err error
 	for err == nil {
@@ -116,14 +117,17 @@ func (client *Client) receive() {
 		}
 		call := client.removeCall(h.Seq)
 		switch {
+		//call 不存在
 		case call == nil:
 			// it usually means that Write partially failed
 			// and call was already removed.
 			err = client.cc.ReadBody(nil)
+		//call 存在，但服务端处理出错
 		case h.Error != "":
 			call.Error = fmt.Errorf(h.Error)
 			err = client.cc.ReadBody(nil)
 			call.done()
+		//call 存在，服务端处理正常
 		default:
 			err = client.cc.ReadBody(call.Reply) //接受服务端的返回
 			if err != nil {
@@ -216,6 +220,7 @@ func Dial(network, address string, opts ...*Option) (*Client, error) {
 	return dialTimeout(NewClient, network, address, opts...)
 }
 
+//发送请求
 func (client *Client) send(call *Call) {
 	// make sure that the client will send a complete request
 	client.sending.Lock()
@@ -229,12 +234,12 @@ func (client *Client) send(call *Call) {
 		return
 	}
 
-	// prepare request header
+	// 调用的服务和方法不一样，故每次都要更改请求头
 	client.header.ServiceMethod = call.ServiceMethod
 	client.header.Seq = seq
 	client.header.Error = ""
 
-	// encode and send the request
+	// 编码并发送请求
 	if err := client.cc.Write(&client.header, call.Args); err != nil {
 		call := client.removeCall(seq)
 		// call may be nil, it usually means that Write partially failed,
@@ -246,8 +251,7 @@ func (client *Client) send(call *Call) {
 	}
 }
 
-// Go invokes the function asynchronously.
-// It returns the Call structure representing the invocation.
+// RPC 服务调用接口,异步
 func (client *Client) Go(serviceMethod string, args, reply interface{}, done chan *Call) *Call {
 	if done == nil {
 		done = make(chan *Call, 10)
@@ -264,8 +268,8 @@ func (client *Client) Go(serviceMethod string, args, reply interface{}, done cha
 	return call
 }
 
-// Call invokes the named function, waits for it to complete,
-// and returns its error status.
+// RPC 服务调用接口,同步
+// send正常调用结束不也应该removeCall？？？
 func (client *Client) Call(ctx context.Context, serviceMethod string, args, reply interface{}) error {
 	call := client.Go(serviceMethod, args, reply, make(chan *Call, 1))
 	select {

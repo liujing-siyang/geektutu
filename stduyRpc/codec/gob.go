@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 )
+
 //编解码实现
 type GobCodec struct {
 	conn io.ReadWriteCloser
@@ -21,22 +22,22 @@ func NewGobCodec(conn io.ReadWriteCloser) Codec {
 	return &GobCodec{
 		conn: conn,
 		buf:  buf,
-		dec:  gob.NewDecoder(conn),
-		enc:  gob.NewEncoder(buf),
+		dec:  gob.NewDecoder(conn), //从conn读取数据
+		enc:  gob.NewEncoder(buf),  //编码后数据写入buf
 	}
 }
 
 func (c *GobCodec) ReadHeader(h *Header) error {
-	return c.dec.Decode(h)
+	return c.dec.Decode(h)//从输入流读取下一个之并将该值存入Header
 }
 
 func (c *GobCodec) ReadBody(body interface{}) error {
-	return c.dec.Decode(body)//解码数据到body
+	return c.dec.Decode(body) //解码数据到body
 }
 
 func (c *GobCodec) Write(h *Header, body interface{}) (err error) {
 	defer func() {
-		_ = c.buf.Flush()//将缓冲buf中的数据写入到 conn 中
+		_ = c.buf.Flush() //将缓冲buf中的数据写入到 conn 中
 		if err != nil {
 			_ = c.Close()
 		}
